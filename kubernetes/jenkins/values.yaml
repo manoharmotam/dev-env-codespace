@@ -1,0 +1,27 @@
+controller:
+  serviceType: ClusterIP
+
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+
+  javaOpts: "-Xms512m -Xmx1536m"
+
+  installPlugins:
+    - kubernetes
+    - workflow-aggregator
+    - git
+    - credentials-binding
+    - configuration-as-code
+
+persistence:
+  enabled: true
+  size: 10Gi
+
+agent:
+  enabled: true
+  podTemplates: {}
