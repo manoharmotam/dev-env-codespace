@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TiffinStore - Fresh South Indian Breakfast</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: #fdfaf6; color: #333; }
+    header { background: #d97706; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+    .container { display: grid; grid-template-columns: 2fr 1fr; gap: 2rem; padding: 2rem; max-width: 1200px; margin: auto; }
+    .card { background: white; border-radius: 8px; padding: 1.2rem; box-shadow: 0 2px 6px rgba(0,0,0,0.08); margin-bottom: 1rem; }
+    .btn { background: #d97706; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .btn:hover { background: #b45309; }
+    .badge { font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 0.2rem 0.5rem; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🥘 TiffinStore</h1>
+    <div id="user-info">Loading user...</div>
+  </header>
+
+  <div class="container">
+    <div>
+      <h2>Fresh Breakfast Menu <span class="badge">MongoDB: product-service</span></h2>
+      <div id="products-list">Loading menu...</div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Your Tiffin Box (Cart) <span class="badge">Redis: cart-service</span></h2>
+        <div id="cart-list">Empty cart</div>
+        <hr>
+        <button class="btn" onclick="checkout()" style="width:100%; padding:0.8rem;">Pay & Dispatch Order (PostgreSQL)</button>
+      </div>
+
+      <div class="card">
+        <h2>Live Delivery Status <span class="badge">MongoDB: shipping-service</span></h2>
+        <div id="shipping-list">No active deliveries</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const USER_ID = 'user-101';
+    let userAddress = 'Plot 42, MG Road, Secunderabad';
+    let cartTotal = 0;
+
+    async function loadUser() {
+      const res = await fetch(`/api/users/${USER_ID}`);
+      if (res.ok) {
+        const user = await res.json();
+        userAddress = user.default_address;
+        document.getElementById('user-info').innerHTML = `👤 <b>${user.name}</b> (${user.default_address}) <span class="badge">PostgreSQL</span>`;
+      }
+    }
+
+    async function loadProducts() {
+      const res = await fetch('/api/products');
+      const data = await res.json();
+      const container = document.getElementById('products-list');
+      container.innerHTML = data.products.map(p => `
+        <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <h3>${p.name} - ₹${p.price}</h3>
+            <p style="margin:0; color:#666;">Category: ${p.category} | Served with: ${p.accompaniments.join(', ') || 'None'}</p>
+          </div>
+          <button class="btn" onclick="addToCart('${p.item_id}', '${p.name}', ${p.price})">+ Add</button>
+        </div>
+      `).join('');
+    }
+
+    async function loadCart() {
+      const res = await fetch(`/api/cart/${USER_ID}`);
+      const data = await res.json();
+      const container = document.getElementById('cart-list');
+      cartTotal = data.items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+      if (data.items.length === 0) {
+        container.innerHTML = '<p>Your tiffin box is empty.</p>';
+      } else {
+        container.innerHTML = data.items.map(i => `<p>${i.name} x ${i.qty} — <b>₹${i.price * i.qty}</b></p>`).join('') +
+                              `<h4>Total: ₹${cartTotal}</h4>`;
+      }
+    }
+
+    async function addToCart(item_id, name, price) {
+      await fetch(`/api/cart/${USER_ID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id, name, price, qty: 1 })
+      });
+      loadCart();
+    }
+
+    async function checkout() {
+      if (cartTotal === 0) return alert('Add some breakfast items first!');
+      const res = await fetch('/api/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: USER_ID, amount: cartTotal, address: userAddress })
+      });
+      const result = await res.json();
+      alert(`Order ${result.tx_id}: ${result.message}`);
+      loadShipments();
+    }
+
+    async function loadShipments() {
+      const res = await fetch(`/api/shipping/${USER_ID}`);
+      const data = await res.json();
+      const container = document.getElementById('shipping-list');
+      if (!data.shipments || data.shipments.length === 0) return;
+      container.innerHTML = data.shipments.map(s => `
+        <div style="border-bottom:1px solid #eee; padding:0.5rem 0;">
+          <b>Order #${s.order_id}</b><br>
+          <span>${s.status}</span><br>
+          <small style="color:#666;">📍 ${s.address}</small>
+        </div>
+      `).join('');
+    }
+
+    loadUser();
+    loadProducts();
+    loadCart();
+    loadShipments();
+  </script>
+</body>
+</html>
