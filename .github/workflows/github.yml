@@ -18,7 +18,7 @@ jobs:
 
       - name: Update timestamp
         run: |
-          echo "$(date -u)" >> .github
+          echo "$(date -u)" >> .streak
 
       - name: Commit changes
         run: |
