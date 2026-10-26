@@ -1,0 +1,30 @@
+name: Daily timestamp
+
+on:
+  schedule:
+    # 4 commits/day: every 6 hours
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  commit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update timestamp
+        run: |
+          echo "$(date -u)" >> .github
+
+      - name: Commit changes
+        run: |
+          git config user.name "Manohar Motam"
+          git config user.email "54133678+manoharmotam@users.noreply.github.com"
+
+          git add .streak
+          git commit -m "chore: update the timestamp" || exit 0
+          git push
