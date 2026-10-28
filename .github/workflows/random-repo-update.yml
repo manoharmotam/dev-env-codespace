@@ -161,4 +161,3 @@ jobs:
             echo "::error::Expected exactly 6 successful updates."
             exit 1
           fi
-```
