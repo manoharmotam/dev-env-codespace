@@ -1,0 +1,164 @@
+name: Random Repository Updates
+
+on:
+  schedule:
+    # 4 commits/day: every 6 hours
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: random-repository-updates
+  cancel-in-progress: false
+
+jobs:
+  update-repositories:
+    name: Update 6 random repositories
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout controller repository
+        uses: actions/checkout@v4
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Select and update repositories
+        env:
+          GH_TOKEN: ${{ secrets.REPO_UPDATE_TOKEN }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          # Read repositories and ignore blank lines and comments.
+          mapfile -t REPOS < <(
+            sed 's/#.*//' repos.txt |
+            sed 's/^[[:space:]]*//;s/[[:space:]]*$//' |
+            grep -v '^$' |
+            sort -u
+          )
+
+          # Prevent accidentally targeting the controller itself.
+          CONTROLLER="${GITHUB_REPOSITORY,,}"
+
+          FILTERED=()
+          for repo in "${REPOS[@]}"; do
+            repo="${repo,,}"
+
+            if [[ ! "$repo" =~ ^[a-z0-9_.-]+/[a-z0-9_.-]+$ ]]; then
+              echo "::error::Invalid repository format: $repo"
+              exit 1
+            fi
+
+            if [[ "$repo" == "$CONTROLLER" ]]; then
+              echo "Skipping controller repository: $repo"
+              continue
+            fi
+
+            FILTERED+=("$repo")
+          done
+
+          REPOS=("${FILTERED[@]}")
+
+          if (( ${#REPOS[@]} < 6 )); then
+            echo "::error::At least 6 eligible repositories are required."
+            exit 1
+          fi
+
+          # Select six distinct repositories at random.
+          mapfile -t SELECTED < <(
+            printf '%s\n' "${REPOS[@]}" | shuf -n 6
+          )
+
+          echo "Selected repositories:"
+          printf ' - %s\n' "${SELECTED[@]}"
+
+          SUCCESS=0
+          FAILED=0
+
+          WORKDIR="$(mktemp -d)"
+          trap 'rm -rf "$WORKDIR"' EXIT
+
+          for REPO in "${SELECTED[@]}"; do
+            echo ""
+            echo "========================================"
+            echo "Processing: $REPO"
+            echo "========================================"
+
+            REPO_DIR="$WORKDIR/${REPO//\//_}"
+
+            # Check repository access and get its default branch.
+            if ! BRANCH="$(gh api "repos/$REPO" \
+              --jq '.default_branch')"; then
+              echo "::error::Cannot access $REPO"
+              FAILED=$((FAILED + 1))
+              continue
+            fi
+
+            # Clone only the default branch.
+            if ! git clone --quiet --single-branch \
+              --branch "$BRANCH" \
+              "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
+              "$REPO_DIR"; then
+              echo "::error::Clone failed: $REPO"
+              FAILED=$((FAILED + 1))
+              continue
+            fi
+
+            cd "$REPO_DIR"
+
+            # Create a unique update marker.
+            # Each run produces a real file change.
+            mkdir -p .github
+            printf 'Workflow run: %s\nUpdated at: %s\n' \
+              "$GITHUB_RUN_ID" \
+              "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+              > .github/automation-update.txt
+
+            git add .github/automation-update.txt
+
+            # Exactly one commit in this repository.
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: automated repository update"
+            else
+              echo "::error::No changes to commit in $REPO"
+              FAILED=$((FAILED + 1))
+              continue
+            fi
+
+            # Push the single commit to the default branch.
+            if git push origin "HEAD:refs/heads/$BRANCH"; then
+              echo "SUCCESS: One commit pushed to $REPO"
+              SUCCESS=$((SUCCESS + 1))
+            else
+              echo "::error::Push failed: $REPO"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          echo ""
+          echo "========================================"
+          echo "SUMMARY"
+          echo "Successfully updated: $SUCCESS"
+          echo "Failed repositories: $FAILED"
+          echo "========================================"
+
+          echo "## Repository update summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Selected: 6" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Successful pushes: $SUCCESS" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Failed repositories: $FAILED" >> "$GITHUB_STEP_SUMMARY"
+
+          if (( FAILED > 0 )); then
+            exit 1
+          fi
+
+          if (( SUCCESS != 6 )); then
+            echo "::error::Expected exactly 6 successful updates."
+            exit 1
+          fi
+```
